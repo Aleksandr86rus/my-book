@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>📖 Фотокнига</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- Экран загрузки -->
+    <div id="loader">
+        <div class="loader-content">
+            <div class="book-icon">📖</div>
+            <h1>Фотокнига</h1>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <p id="loadingText">Загрузка страниц...</p>
+        </div>
+    </div>
+
+    <!-- Основной интерфейс -->
+    <div id="app" class="hidden">
+        <!-- Верхняя панель -->
+        <header id="header">
+            <div class="header-left">
+                <span class="book-title">📖 Фотокнига</span>
+            </div>
+            <div class="header-center">
+                <span id="pageIndicator">1 / 10</span>
+            </div>
+            <div class="header-right">
+                <button id="btnThumbnails" class="header-btn" title="Миниатюры">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                    </svg>
+                </button>
+                <button id="btnFullscreen" class="header-btn" title="Полный экран">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Контейнер книги -->
+        <div id="bookContainer">
+            <div id="book">
+                <!-- Страницы генерируются через JS -->
+            </div>
+        </div>
+
+        <!-- Навигация -->
+        <button id="btnPrev" class="nav-btn nav-prev" title="Назад">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="15 18 9 12 15 6"/>
+            </svg>
+        </button>
+        <button id="btnNext" class="nav-btn nav-next" title="Вперёд">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="9 18 15 12 9 6"/>
+            </svg>
+        </button>
+
+        <!-- Нижняя панель с прогрессом -->
+        <footer id="footer">
+            <div class="page-slider-container">
+                <input type="range" id="pageSlider" min="0" max="9" value="0" class="page-slider">
+                <div class="slider-labels" id="sliderLabels"></div>
+            </div>
+        </footer>
+
+        <!-- Панель миниатюр -->
+        <div id="thumbnailsPanel" class="thumbnails-panel hidden">
+            <div class="thumbnails-header">
+                <h2>Страницы</h2>
+                <button id="btnCloseThumbnails" class="close-btn">&times;</button>
+            </div>
+            <div class="thumbnails-grid" id="thumbnailsGrid">
+                <!-- Миниатюры генерируются через JS -->
+            </div>
+        </div>
+    </div>
+
+    <script src="js/book.js"></script>
+</body>
+</html>
