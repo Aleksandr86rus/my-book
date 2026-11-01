@@ -1,4 +1,3 @@
-
 (function () {
     'use strict';
 
@@ -946,6 +945,3 @@
     } else {
         init();
     }
-
-})();
-```
