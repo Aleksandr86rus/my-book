@@ -1,6 +1,6 @@
 /**
  * 📖 Flipbook Application
- * Полностью адаптивная книга с перелистыванием
+ * Оптимизировано для большого количества страниц (163+)
  */
 
 (function () {
@@ -10,29 +10,17 @@
     // КОНФИГУРАЦИЯ
     // ==========================================
     const CONFIG = {
-        // Массив путей к картинкам
-        // Измените пути и количество под свои файлы!
-        pages: [
-            'images/page1.jpg',
-            'images/page2.jpg',
-            'images/page3.jpg',
-            'images/page4.jpg',
-            'images/page5.jpg',
-            'images/page6.jpg',
-            'images/page7.jpg',
-            'images/page8.jpg',
-            'images/page9.jpg',
-            'images/page10.jpg'
-        ],
-        // Скорость анимации перелистывания (мс)
+        pages: [],
         flipDuration: 800,
-        // Минимальная дистанция свайпа (px)
         swipeThreshold: 50,
-        // Показывать подсказку при первом запуске
         showHint: true,
-        // Время показа подсказки (мс)
         hintDuration: 4000
     };
+
+    // Генерация массива страниц от 1 до 163
+    for (let i = 1; i <= 163; i++) {
+        CONFIG.pages.push(`images/page (${i}).jpg`);
+    }
 
     // ==========================================
     // СОСТОЯНИЕ
@@ -82,31 +70,32 @@
     }
 
     // ==========================================
-    // ПРЕДЗАГРУЗКА ИЗОБРАЖЕНИЙ
+    // ПРЕДЗАГРУЗКА (только первые 10 + остальные лениво)
     // ==========================================
     function preloadImages() {
+        const preloadCount = Math.min(10, CONFIG.pages.length);
         let loaded = 0;
-        const total = CONFIG.pages.length;
 
-        if (total === 0) {
+        if (preloadCount === 0) {
             onAllImagesLoaded();
             return;
         }
 
-        CONFIG.pages.forEach((src, index) => {
+        // Загружаем первые 10 страниц, остальные — лениво
+        for (let i = 0; i < preloadCount; i++) {
             const img = new Image();
             img.onload = img.onerror = () => {
                 loaded++;
-                const percent = Math.round((loaded / total) * 100);
+                const percent = Math.round((loaded / preloadCount) * 100);
                 DOM.progressFill.style.width = percent + '%';
-                DOM.loadingText.textContent = `Загрузка: ${loaded} из ${total}`;
+                DOM.loadingText.textContent = `Загрузка: ${loaded} из ${preloadCount}`;
 
-                if (loaded === total) {
+                if (loaded === preloadCount) {
                     setTimeout(onAllImagesLoaded, 300);
                 }
             };
-            img.src = src;
-        });
+            img.src = CONFIG.pages[i];
+        }
     }
 
     function onAllImagesLoaded() {
@@ -120,7 +109,29 @@
             bindEvents();
             updateUI();
             showHint();
+            // Фоновая подгрузка остальных
+            lazyLoadRemaining();
         }, 500);
+    }
+
+    // Фоновая загрузка остальных картинок
+    function lazyLoadRemaining() {
+        let i = 10;
+        function loadNext() {
+            if (i >= CONFIG.pages.length) return;
+            const img = new Image();
+            img.onload = img.onerror = () => {
+                i++;
+                // Загружаем по 3 за раз с задержкой
+                if (i % 3 === 0) {
+                    setTimeout(loadNext, 50);
+                } else {
+                    loadNext();
+                }
+            };
+            img.src = CONFIG.pages[i];
+        }
+        loadNext();
     }
 
     // ==========================================
@@ -129,33 +140,45 @@
     function buildBook() {
         DOM.book.innerHTML = '';
 
+        // Для оптимизации: создаём DocumentFragment
+        const fragment = document.createDocumentFragment();
+
         CONFIG.pages.forEach((src, index) => {
             const page = document.createElement('div');
             page.className = 'page';
             page.dataset.index = index;
             page.style.zIndex = state.totalPages - index;
 
+            // Скрываем далёкие страницы для производительности
+            if (index > 10) {
+                page.style.visibility = 'hidden';
+            }
+
             // Передняя сторона
             const front = document.createElement('div');
             front.className = 'page-front';
             const frontImg = document.createElement('img');
-            frontImg.src = src;
             frontImg.alt = `Страница ${index + 1}`;
             frontImg.draggable = false;
+            
+            // Первые 10 — сразу, остальные — лениво
+            if (index < 10) {
+                frontImg.src = src;
+            } else {
+                frontImg.dataset.src = src;
+                frontImg.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjUzMyIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMmEyYTNlIi8+PC9zdmc+';
+            }
             front.appendChild(frontImg);
 
-            // Номер страницы (перед)
+            // Номер страницы
             const frontNum = document.createElement('div');
             frontNum.className = 'page-number';
             frontNum.textContent = index + 1;
             front.appendChild(frontNum);
 
-            // Задняя сторона (показывает следующую страницу зеркально или пустая)
+            // Задняя сторона
             const back = document.createElement('div');
             back.className = 'page-back';
-
-            // На задней стороне — та же картинка (зеркально отражённая стилем)
-            // Или можно оставить пустой
             const backInner = document.createElement('div');
             backInner.style.cssText = `
                 width: 100%; height: 100%;
@@ -167,7 +190,37 @@
 
             page.appendChild(front);
             page.appendChild(back);
-            DOM.book.appendChild(page);
+            fragment.appendChild(page);
+        });
+
+        DOM.book.appendChild(fragment);
+    }
+
+    // Подгрузка картинки страницы при приближении
+    function ensurePageLoaded(pageIndex) {
+        const pages = DOM.book.querySelectorAll('.page');
+        
+        // Загружаем текущую и ±5 соседних
+        for (let i = Math.max(0, pageIndex - 3); i <= Math.min(state.totalPages - 1, pageIndex + 5); i++) {
+            const page = pages[i];
+            if (!page) continue;
+            
+            page.style.visibility = 'visible';
+            
+            const img = page.querySelector('.page-front img');
+            if (img && img.dataset.src && !img.dataset.loaded) {
+                img.src = img.dataset.src;
+                img.dataset.loaded = 'true';
+            }
+        }
+
+        // Скрываем далёкие страницы
+        pages.forEach((page, i) => {
+            if (i < pageIndex - 5 || i > pageIndex + 10) {
+                if (!page.classList.contains('flipped')) {
+                    page.style.visibility = 'hidden';
+                }
+            }
         });
     }
 
@@ -176,6 +229,7 @@
     // ==========================================
     function buildThumbnails() {
         DOM.thumbnailsGrid.innerHTML = '';
+        const fragment = document.createDocumentFragment();
 
         CONFIG.pages.forEach((src, index) => {
             const item = document.createElement('div');
@@ -189,17 +243,19 @@
 
             const label = document.createElement('div');
             label.className = 'thumbnail-label';
-            label.textContent = `Стр. ${index + 1}`;
+            label.textContent = `${index + 1}`;
 
             item.appendChild(img);
             item.appendChild(label);
-            DOM.thumbnailsGrid.appendChild(item);
+            fragment.appendChild(item);
 
             item.addEventListener('click', () => {
                 goToPage(index);
                 closeThumbnails();
             });
         });
+
+        DOM.thumbnailsGrid.appendChild(fragment);
     }
 
     function updateThumbnailsActive() {
@@ -225,12 +281,15 @@
         if (state.isAnimating || state.currentPage >= state.totalPages - 1) return;
 
         state.isAnimating = true;
-        const page = DOM.book.querySelectorAll('.page')[state.currentPage];
-        
+        const pages = DOM.book.querySelectorAll('.page');
+        const page = pages[state.currentPage];
+
+        // Убедимся что следующие страницы загружены
+        ensurePageLoaded(state.currentPage + 1);
+
         page.classList.add('flipping');
         page.classList.add('flipped');
 
-        // Звук перелистывания (опционально)
         playFlipSound();
 
         setTimeout(() => {
@@ -238,6 +297,7 @@
             state.currentPage++;
             state.isAnimating = false;
             updateUI();
+            ensurePageLoaded(state.currentPage);
         }, CONFIG.flipDuration);
     }
 
@@ -247,8 +307,11 @@
         state.isAnimating = true;
         state.currentPage--;
 
-        const page = DOM.book.querySelectorAll('.page')[state.currentPage];
-        
+        const pages = DOM.book.querySelectorAll('.page');
+        const page = pages[state.currentPage];
+
+        ensurePageLoaded(state.currentPage);
+
         page.classList.add('flipping');
         page.classList.remove('flipped');
 
@@ -258,6 +321,7 @@
             page.classList.remove('flipping');
             state.isAnimating = false;
             updateUI();
+            ensurePageLoaded(state.currentPage);
         }, CONFIG.flipDuration);
     }
 
@@ -271,10 +335,13 @@
         // Мгновенно перемотать без анимации
         pages.forEach((page, i) => {
             page.style.transition = 'none';
+            page.style.visibility = 'visible';
             if (i < targetPage) {
                 page.classList.add('flipped');
+                page.style.zIndex = 0;
             } else {
                 page.classList.remove('flipped');
+                page.style.zIndex = state.totalPages - i;
             }
         });
 
@@ -289,23 +356,17 @@
 
         state.currentPage = targetPage;
         updateUI();
+        ensurePageLoaded(state.currentPage);
     }
 
     // ==========================================
     // ОБНОВЛЕНИЕ UI
     // ==========================================
     function updateUI() {
-        // Индикатор страницы
         DOM.pageIndicator.textContent = `${state.currentPage + 1} / ${state.totalPages}`;
-
-        // Слайдер
         DOM.pageSlider.value = state.currentPage;
-
-        // Кнопки навигации
         DOM.btnPrev.disabled = state.currentPage <= 0;
         DOM.btnNext.disabled = state.currentPage >= state.totalPages - 1;
-
-        // Миниатюры
         updateThumbnailsActive();
     }
 
@@ -313,7 +374,6 @@
     // СОБЫТИЯ
     // ==========================================
     function bindEvents() {
-        // Кнопки навигации
         DOM.btnNext.addEventListener('click', (e) => {
             e.stopPropagation();
             nextPage();
@@ -324,10 +384,10 @@
             prevPage();
         });
 
-        // Клик по книге (правая/левая половина)
+        // Клик по книге
         DOM.bookContainer.addEventListener('click', (e) => {
             if (e.target.closest('.nav-btn') || e.target.closest('.header-btn')) return;
-            
+
             const rect = DOM.bookContainer.getBoundingClientRect();
             const clickX = e.clientX - rect.left;
             const midX = rect.width / 2;
@@ -339,7 +399,7 @@
             }
         });
 
-        // Тач — свайп
+        // Тач
         DOM.bookContainer.addEventListener('touchstart', handleTouchStart, { passive: true });
         DOM.bookContainer.addEventListener('touchmove', handleTouchMove, { passive: false });
         DOM.bookContainer.addEventListener('touchend', handleTouchEnd, { passive: true });
@@ -363,7 +423,7 @@
         DOM.btnThumbnails.addEventListener('click', openThumbnails);
         DOM.btnCloseThumbnails.addEventListener('click', closeThumbnails);
 
-        // Двойной тап — показать/скрыть бары
+        // Двойной тап
         let lastTap = 0;
         DOM.bookContainer.addEventListener('touchend', (e) => {
             const now = Date.now();
@@ -373,15 +433,10 @@
             }
             lastTap = now;
         });
-
-        // Resize
-        window.addEventListener('resize', debounce(() => {
-            // Пересчитать, если нужно
-        }, 250));
     }
 
     // ==========================================
-    // TOUCH HANDLING
+    // TOUCH
     // ==========================================
     function handleTouchStart(e) {
         state.touchStartX = e.touches[0].clientX;
@@ -389,11 +444,10 @@
     }
 
     function handleTouchMove(e) {
-        // Предотвращаем скролл при горизонтальном свайпе
         if (!state.touchStartX) return;
         const diffX = Math.abs(e.touches[0].clientX - state.touchStartX);
         const diffY = Math.abs(e.touches[0].clientY - state.touchStartY);
-        
+
         if (diffX > diffY && diffX > 10) {
             e.preventDefault();
         }
@@ -404,12 +458,11 @@
         const diffX = state.touchStartX - state.touchEndX;
         const diffY = Math.abs(e.changedTouches[0].clientY - state.touchStartY);
 
-        // Только горизонтальный свайп
         if (Math.abs(diffX) > CONFIG.swipeThreshold && Math.abs(diffX) > diffY) {
             if (diffX > 0) {
-                nextPage(); // Свайп влево → следующая
+                nextPage();
             } else {
-                prevPage(); // Свайп вправо → предыдущая
+                prevPage();
             }
         }
 
@@ -461,9 +514,9 @@
     let wheelTimeout = null;
     function handleWheel(e) {
         e.preventDefault();
-        
+
         if (wheelTimeout) return;
-        
+
         wheelTimeout = setTimeout(() => {
             wheelTimeout = null;
         }, CONFIG.flipDuration + 100);
@@ -493,7 +546,6 @@
         updateThumbnailsActive();
         DOM.thumbnailsPanel.classList.remove('hidden');
 
-        // Прокрутить к активной
         setTimeout(() => {
             const active = DOM.thumbnailsGrid.querySelector('.active');
             if (active) {
@@ -507,7 +559,7 @@
     }
 
     // ==========================================
-    // BARS TOGGLE
+    // BARS
     // ==========================================
     function toggleBars() {
         state.barsVisible = !state.barsVisible;
@@ -520,13 +572,13 @@
     // ==========================================
     function showHint() {
         if (!CONFIG.showHint) return;
-        
+
         const hintKey = 'flipbook_hint_shown';
         if (localStorage.getItem(hintKey)) return;
 
         const hint = document.createElement('div');
         hint.className = 'touch-hint';
-        hint.textContent = '👆 Нажимайте или свайпайте для перелистывания';
+        hint.textContent = '👆 Свайпайте или нажимайте для перелистывания';
         document.body.appendChild(hint);
 
         setTimeout(() => {
@@ -539,30 +591,27 @@
     }
 
     // ==========================================
-    // SOUND (опционально)
+    // SOUND
     // ==========================================
     function playFlipSound() {
-        // Создаём лёгкий звук перелистывания через Web Audio API
         try {
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioCtx.createOscillator();
             const gainNode = audioCtx.createGain();
-            
+
             oscillator.connect(gainNode);
             gainNode.connect(audioCtx.destination);
-            
+
             oscillator.type = 'sine';
             oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
             oscillator.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.08);
-            
+
             gainNode.gain.setValueAtTime(0.03, audioCtx.currentTime);
             gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
-            
+
             oscillator.start(audioCtx.currentTime);
             oscillator.stop(audioCtx.currentTime + 0.1);
-        } catch (e) {
-            // Игнорируем ошибки аудио
-        }
+        } catch (e) {}
     }
 
     // ==========================================
