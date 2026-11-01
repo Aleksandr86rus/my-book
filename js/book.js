@@ -17,6 +17,7 @@
         aspectRatio: 3 / 4,
         swipeThreshold: 50,
         preloadBatch: 10,
+        // Зум
         minZoom: 1,
         maxZoom: 4,
         doubleTapZoom: 2.5,
@@ -38,6 +39,7 @@
         touchStartTime: 0,
         loadedImages: new Set(),
 
+        // Зум
         zoom: 1,
         panX: 0,
         panY: 0,
@@ -94,6 +96,7 @@
         zoomResetBtn: null,
     };
 
+    // Создаём элементы для зума
     function createZoomUI() {
         const indicator = document.createElement('div');
         indicator.className = 'zoom-indicator';
@@ -269,20 +272,10 @@
         spread.className = 'spread';
 
         if (leftIdx < state.totalPages) spread.appendChild(createPage(leftIdx, 'left'));
-        else {
-            const e = document.createElement('div');
-            e.className = 'page page-left';
-            e.innerHTML = '<div class="page-inner" style="background:#f5f0e8;"></div>';
-            spread.appendChild(e);
-        }
+        else { const e = document.createElement('div'); e.className = 'page page-left'; e.innerHTML = '<div class="page-inner" style="background:#f5f0e8;"></div>'; spread.appendChild(e); }
 
         if (rightIdx < state.totalPages) spread.appendChild(createPage(rightIdx, 'right'));
-        else {
-            const e = document.createElement('div');
-            e.className = 'page page-right';
-            e.innerHTML = '<div class="page-inner" style="background:#f5f0e8;"></div>';
-            spread.appendChild(e);
-        }
+        else { const e = document.createElement('div'); e.className = 'page page-right'; e.innerHTML = '<div class="page-inner" style="background:#f5f0e8;"></div>'; spread.appendChild(e); }
 
         DOM.book.appendChild(spread);
     }
@@ -306,11 +299,14 @@
     }
 
     // ============================================
-    //  ЗУМ
+    //  ЗУМ — ОСНОВНЫЕ ФУНКЦИИ
     // ============================================
     function applyTransform(animated = true) {
-        if (animated) DOM.book.classList.add('zoom-animating');
-        else DOM.book.classList.remove('zoom-animating');
+        if (animated) {
+            DOM.book.classList.add('zoom-animating');
+        } else {
+            DOM.book.classList.remove('zoom-animating');
+        }
 
         DOM.book.style.transform =
             `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
@@ -344,6 +340,7 @@
         return Math.max(CONFIG.minZoom, Math.min(CONFIG.maxZoom, z));
     }
 
+    // Ограничение панорамирования, чтобы книга не улетала за край
     function clampPan() {
         if (state.zoom <= 1) {
             state.panX = 0;
@@ -353,10 +350,15 @@
         const bookRect = DOM.book.getBoundingClientRect();
         const winW = window.innerWidth;
         const winH = window.innerHeight;
-        const scaledW = bookRect.width;
-        const scaledH = bookRect.height;
+
+        // Размер книги с учётом зума
+        const scaledW = (bookRect.width / state.zoom) * state.zoom;
+        const scaledH = (bookRect.height / state.zoom) * state.zoom;
+
+        // Максимальное смещение
         const maxX = Math.max(0, (scaledW - winW) / 2 + 50);
         const maxY = Math.max(0, (scaledH - winH) / 2 + 50);
+
         state.panX = Math.max(-maxX, Math.min(maxX, state.panX));
         state.panY = Math.max(-maxY, Math.min(maxY, state.panY));
     }
@@ -372,20 +374,27 @@
     function zoomAt(newZoom, centerX, centerY, animated = false) {
         newZoom = clampZoom(newZoom);
         const bookRect = DOM.book.getBoundingClientRect();
+
+        // Центр книги на экране
         const bookCenterX = bookRect.left + bookRect.width / 2;
         const bookCenterY = bookRect.top + bookRect.height / 2;
+
+        // Точка под пальцем относительно центра книги (в не-зумированных координатах)
         const offsetX = (centerX - bookCenterX) / state.zoom;
         const offsetY = (centerY - bookCenterY) / state.zoom;
+
+        // Новая позиция, чтобы точка под пальцем осталась на месте
         state.panX = state.panX + offsetX * (state.zoom - newZoom);
         state.panY = state.panY + offsetY * (state.zoom - newZoom);
         state.zoom = newZoom;
+
         clampPan();
         applyTransform(animated);
         showZoomIndicator();
     }
 
     // ============================================
-    //  TOUCH
+    //  TOUCH — JPIN / PAN / SWIPE / TAP
     // ============================================
     function getDistance(t1, t2) {
         const dx = t2.clientX - t1.clientX;
@@ -405,9 +414,11 @@
 
         el.addEventListener('touchstart', (e) => {
             if (state.isAnimating) return;
+
             const touches = e.touches;
 
             if (touches.length === 2) {
+                // Начало пинча
                 e.preventDefault();
                 state.isPinching = true;
                 state.isPanning = false;
@@ -416,6 +427,7 @@
                 const c = getCenter(touches[0], touches[1]);
                 state.pinchCenterX = c.x;
                 state.pinchCenterY = c.y;
+
             } else if (touches.length === 1) {
                 const t = touches[0];
                 state.touchStartX = t.clientX;
@@ -423,6 +435,7 @@
                 state.touchStartTime = Date.now();
 
                 if (isZoomed()) {
+                    // В режиме зума — панорамирование
                     state.isPanning = true;
                     state.panStartX = t.clientX;
                     state.panStartY = t.clientY;
@@ -441,20 +454,29 @@
                 const dist = getDistance(touches[0], touches[1]);
                 const scale = dist / state.pinchStartDist;
                 const newZoom = clampZoom(state.pinchStartZoom * scale);
+
+                // Центр жеста (может двигаться)
                 const c = getCenter(touches[0], touches[1]);
+
+                // Применяем зум с учётом движения центра
                 const bookRect = DOM.book.getBoundingClientRect();
                 const bookCenterX = bookRect.left + bookRect.width / 2;
                 const bookCenterY = bookRect.top + bookRect.height / 2;
+
                 const offsetX = (state.pinchCenterX - bookCenterX) / state.zoom;
                 const offsetY = (state.pinchCenterY - bookCenterY) / state.zoom;
+
                 state.panX = state.panX + offsetX * (state.zoom - newZoom) + (c.x - state.pinchCenterX);
                 state.panY = state.panY + offsetY * (state.zoom - newZoom) + (c.y - state.pinchCenterY);
                 state.zoom = newZoom;
+
                 state.pinchCenterX = c.x;
                 state.pinchCenterY = c.y;
+
                 clampPan();
                 applyTransform(false);
                 showZoomIndicator();
+
             } else if (state.isPanning && touches.length === 1 && isZoomed()) {
                 e.preventDefault();
                 const t = touches[0];
@@ -471,8 +493,13 @@
             if (state.isPinching) {
                 if (remaining < 2) {
                     state.isPinching = false;
-                    if (state.zoom < 1.05) resetZoom(true);
-                    else { clampPan(); applyTransform(true); }
+                    // Если зум меньше 1.05 — сбрасываем в 1
+                    if (state.zoom < 1.05) {
+                        resetZoom(true);
+                    } else {
+                        clampPan();
+                        applyTransform(true);
+                    }
                 }
                 return;
             }
@@ -494,20 +521,28 @@
             const absDx = Math.abs(dx);
             const absDy = Math.abs(dy);
 
+            // Если в зуме — не листаем
             if (isZoomed()) return;
 
+            // Короткий тап
             if (absDx < 10 && absDy < 10 && dt < 300) {
                 const now = Date.now();
                 const tapDelta = now - state.lastTapTime;
 
                 if (tapDelta < CONFIG.doubleTapDelay && tapDelta > 50) {
+                    // Двойной тап — зум
                     state.lastTapTime = 0;
-                    if (isZoomed()) resetZoom(true);
-                    else zoomAt(CONFIG.doubleTapZoom, t.clientX, t.clientY, true);
+                    if (isZoomed()) {
+                        resetZoom(true);
+                    } else {
+                        zoomAt(CONFIG.doubleTapZoom, t.clientX, t.clientY, true);
+                    }
                 } else {
                     state.lastTapTime = now;
+                    // Отложенный одиночный тап
                     setTimeout(() => {
                         if (state.lastTapTime === now) {
+                            // Был именно одиночный
                             if (state.uiVisible) hideUI();
                             else resetUITimer();
                             showTouchFeedback(t.clientX, t.clientY);
@@ -517,6 +552,7 @@
                 return;
             }
 
+            // Свайп — листаем
             if (absDx > CONFIG.swipeThreshold && absDx > absDy) {
                 if (dx < 0) goNext(); else goPrev();
             }
@@ -528,6 +564,7 @@
             DOM.book.classList.remove('dragging');
         });
 
+        // Клики мышью (десктоп)
         el.addEventListener('click', (e) => {
             if (state.isAnimating || isZoomed()) return;
             if (e.detail === 0) return;
@@ -543,6 +580,7 @@
             }
         });
 
+        // Двойной клик мышью на десктопе
         el.addEventListener('dblclick', (e) => {
             e.preventDefault();
             if (isZoomed()) resetZoom(true);
@@ -881,6 +919,7 @@
 
         document.addEventListener('mousemove', () => resetUITimer());
 
+        // Колесо мыши: Ctrl+wheel = зум, иначе — листание
         DOM.bookContainer.addEventListener('wheel', (e) => {
             e.preventDefault();
             if (e.ctrlKey || e.metaKey) {
@@ -889,6 +928,7 @@
                 return;
             }
             if (isZoomed()) {
+                // В режиме зума колесо — панорамирование
                 state.panX -= e.deltaX;
                 state.panY -= e.deltaY;
                 clampPan();
@@ -900,6 +940,7 @@
             else goPrev();
         }, { passive: false });
 
+        // Блокировка контекстного меню на долгое нажатие
         DOM.bookContainer.addEventListener('contextmenu', (e) => {
             if ('ontouchstart' in window) e.preventDefault();
         });
@@ -945,3 +986,5 @@
     } else {
         init();
     }
+
+})();
