@@ -1,11 +1,10 @@
+
 (function () {
     'use strict';
 
     // ============================================
     //  КОНФИГУРАЦИЯ
     // ============================================
-    
-    // Автоматическая генерация списка страниц: page (1).jpg ... page (163).jpg
     const TOTAL_PAGES = 163;
     const pagesList = [];
     for (let i = 1; i <= TOTAL_PAGES; i++) {
@@ -14,11 +13,15 @@
 
     const CONFIG = {
         pages: pagesList,
-        flipDuration: 800,       // мс — длительность перелистывания
-        autoHideUI: 3000,        // мс — автоскрытие UI
-        aspectRatio: 3 / 4,      // соотношение сторон одной страницы (ширина/высота)
-        swipeThreshold: 50,      // пикселей для свайпа
-        preloadBatch: 10,        // сколько первых страниц грузить для старта
+        flipDuration: 800,
+        autoHideUI: 3000,
+        aspectRatio: 3 / 4,
+        swipeThreshold: 50,
+        preloadBatch: 10,
+        minZoom: 1,
+        maxZoom: 4,
+        doubleTapZoom: 2.5,
+        doubleTapDelay: 300,
     };
 
     // ============================================
@@ -34,17 +37,35 @@
         touchStartX: 0,
         touchStartY: 0,
         touchStartTime: 0,
-        imagesLoaded: 0,
-        loadedImages: new Set(), // кэш загруженных индексов
+        loadedImages: new Set(),
+
+        zoom: 1,
+        panX: 0,
+        panY: 0,
+        lastTapTime: 0,
+        isPinching: false,
+        isPanning: false,
+        pinchStartDist: 0,
+        pinchStartZoom: 1,
+        pinchCenterX: 0,
+        pinchCenterY: 0,
+        panStartX: 0,
+        panStartY: 0,
+        panStartPanX: 0,
+        panStartPanY: 0,
+        zoomIndicatorTimeout: null,
     };
 
     function getTotalSpreads() {
-        if (state.isVertical) return state.totalPages;
-        return Math.ceil(state.totalPages / 2);
+        return state.isVertical ? state.totalPages : Math.ceil(state.totalPages / 2);
     }
 
     function getMaxSpread() {
         return getTotalSpreads() - 1;
+    }
+
+    function isZoomed() {
+        return state.zoom > 1.01;
     }
 
     // ============================================
@@ -70,18 +91,42 @@
         thumbnailsPanel: $('#thumbnailsPanel'),
         thumbnailsGrid: $('#thumbnailsGrid'),
         btnCloseThumbnails: $('#btnCloseThumbnails'),
+        zoomIndicator: null,
+        zoomResetBtn: null,
     };
 
+    function createZoomUI() {
+        const indicator = document.createElement('div');
+        indicator.className = 'zoom-indicator';
+        indicator.textContent = '100%';
+        document.body.appendChild(indicator);
+        DOM.zoomIndicator = indicator;
+
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'zoom-reset-btn';
+        resetBtn.title = 'Сбросить масштаб';
+        resetBtn.innerHTML = `
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                <line x1="8" y1="11" x2="14" y2="11"/>
+            </svg>
+        `;
+        resetBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetZoom(true);
+        });
+        document.body.appendChild(resetBtn);
+        DOM.zoomResetBtn = resetBtn;
+    }
+
     // ============================================
-    //  УМНАЯ ЗАГРУЗКА (прогрессивная)
+    //  ЗАГРУЗКА
     // ============================================
-    // Грузим первые N страниц для быстрого старта,
-    // остальные подгружаются в фоне и по требованию
     function preloadInitial() {
         return new Promise((resolve) => {
             const batchSize = Math.min(CONFIG.preloadBatch, CONFIG.pages.length);
             let loaded = 0;
-
             if (batchSize === 0) { resolve(); return; }
 
             for (let i = 0; i < batchSize; i++) {
@@ -90,10 +135,7 @@
                     const pct = Math.round((loaded / batchSize) * 100);
                     DOM.progressFill.style.width = pct + '%';
                     DOM.loadingText.textContent = `Загрузка... ${loaded}/${batchSize}`;
-
-                    if (loaded >= batchSize) {
-                        setTimeout(resolve, 300);
-                    }
+                    if (loaded >= batchSize) setTimeout(resolve, 300);
                 });
             }
         });
@@ -112,25 +154,18 @@
         img.src = CONFIG.pages[idx];
     }
 
-    // Фоновая подгрузка остальных страниц
     function backgroundPreload() {
         let i = CONFIG.preloadBatch;
         const loadNext = () => {
             if (i >= CONFIG.pages.length) return;
-            loadImage(i, () => {
-                i++;
-                // небольшая пауза, чтобы не блокировать UI
-                setTimeout(loadNext, 50);
-            });
+            loadImage(i, () => { i++; setTimeout(loadNext, 50); });
         };
         loadNext();
     }
 
-    // Приоритетная подгрузка соседних страниц
     function preloadNeighbors() {
         const current = state.currentSpread;
         const indices = [];
-
         if (state.isVertical) {
             for (let d = -2; d <= 2; d++) {
                 const i = current + d;
@@ -146,54 +181,41 @@
                 if (right < state.totalPages) indices.push(right);
             }
         }
-
         indices.forEach(i => loadImage(i));
     }
 
     // ============================================
-    //  ОРИЕНТАЦИЯ
+    //  ОРИЕНТАЦИЯ / РАЗМЕРЫ
     // ============================================
     function detectOrientation() {
         const w = window.innerWidth;
         const h = window.innerHeight;
         const wasVertical = state.isVertical;
         state.isVertical = h > w;
-
         document.body.classList.toggle('vertical-mode', state.isVertical);
         return wasVertical !== state.isVertical;
     }
 
-    // ============================================
-    //  РАЗМЕРЫ
-    // ============================================
     function calculateBookSize() {
         const winW = window.innerWidth;
         const winH = window.innerHeight;
         const headerH = 56;
         const footerH = 52;
         const padding = 20;
-
         const availW = winW - padding * 2;
         const availH = winH - headerH - footerH - padding * 2;
 
         let bookW, bookH;
-
         if (state.isVertical) {
             const pageAR = CONFIG.aspectRatio;
             bookH = availH;
             bookW = bookH * pageAR;
-            if (bookW > availW) {
-                bookW = availW;
-                bookH = bookW / pageAR;
-            }
+            if (bookW > availW) { bookW = availW; bookH = bookW / pageAR; }
         } else {
             const spreadAR = CONFIG.aspectRatio * 2;
             bookH = availH;
             bookW = bookH * spreadAR;
-            if (bookW > availW) {
-                bookW = availW;
-                bookH = bookW / spreadAR;
-            }
+            if (bookW > availW) { bookW = availW; bookH = bookW / spreadAR; }
         }
 
         DOM.book.style.width = Math.floor(bookW) + 'px';
@@ -205,13 +227,11 @@
     // ============================================
     function renderBook() {
         DOM.book.innerHTML = '';
-        if (state.isVertical) {
-            renderSingleMode();
-        } else {
-            renderDoubleMode();
-        }
+        if (state.isVertical) renderSingleMode();
+        else renderDoubleMode();
         updateNavigation();
         preloadNeighbors();
+        applyTransform(false);
     }
 
     function renderSingleMode() {
@@ -249,22 +269,20 @@
         const spread = document.createElement('div');
         spread.className = 'spread';
 
-        if (leftIdx < state.totalPages) {
-            spread.appendChild(createPage(leftIdx, 'left'));
-        } else {
-            const empty = document.createElement('div');
-            empty.className = 'page page-left';
-            empty.innerHTML = '<div class="page-inner" style="background:#f5f0e8;"></div>';
-            spread.appendChild(empty);
+        if (leftIdx < state.totalPages) spread.appendChild(createPage(leftIdx, 'left'));
+        else {
+            const e = document.createElement('div');
+            e.className = 'page page-left';
+            e.innerHTML = '<div class="page-inner" style="background:#f5f0e8;"></div>';
+            spread.appendChild(e);
         }
 
-        if (rightIdx < state.totalPages) {
-            spread.appendChild(createPage(rightIdx, 'right'));
-        } else {
-            const empty = document.createElement('div');
-            empty.className = 'page page-right';
-            empty.innerHTML = '<div class="page-inner" style="background:#f5f0e8;"></div>';
-            spread.appendChild(empty);
+        if (rightIdx < state.totalPages) spread.appendChild(createPage(rightIdx, 'right'));
+        else {
+            const e = document.createElement('div');
+            e.className = 'page page-right';
+            e.innerHTML = '<div class="page-inner" style="background:#f5f0e8;"></div>';
+            spread.appendChild(e);
         }
 
         DOM.book.appendChild(spread);
@@ -273,41 +291,277 @@
     function createPage(pageIdx, side) {
         const page = document.createElement('div');
         page.className = `page page-${side}`;
-
         const inner = document.createElement('div');
         inner.className = 'page-inner';
-
         const img = document.createElement('img');
         img.src = CONFIG.pages[pageIdx];
         img.alt = `Страница ${pageIdx + 1}`;
         img.draggable = false;
-
         const num = document.createElement('div');
         num.className = 'page-number';
         num.textContent = pageIdx + 1;
-
         inner.appendChild(img);
         page.appendChild(inner);
         page.appendChild(num);
-
         return page;
     }
 
     // ============================================
-    //  АНИМАЦИИ
+    //  ЗУМ
+    // ============================================
+    function applyTransform(animated = true) {
+        if (animated) DOM.book.classList.add('zoom-animating');
+        else DOM.book.classList.remove('zoom-animating');
+
+        DOM.book.style.transform =
+            `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+
+        if (isZoomed()) {
+            DOM.book.classList.add('zoomed');
+            document.body.classList.add('zoom-active');
+            DOM.zoomResetBtn.classList.add('visible');
+        } else {
+            DOM.book.classList.remove('zoomed');
+            document.body.classList.remove('zoom-active');
+            DOM.zoomResetBtn.classList.remove('visible');
+        }
+
+        if (animated) {
+            setTimeout(() => DOM.book.classList.remove('zoom-animating'), 300);
+        }
+    }
+
+    function showZoomIndicator() {
+        const pct = Math.round(state.zoom * 100);
+        DOM.zoomIndicator.textContent = pct + '%';
+        DOM.zoomIndicator.classList.add('visible');
+        clearTimeout(state.zoomIndicatorTimeout);
+        state.zoomIndicatorTimeout = setTimeout(() => {
+            DOM.zoomIndicator.classList.remove('visible');
+        }, 1000);
+    }
+
+    function clampZoom(z) {
+        return Math.max(CONFIG.minZoom, Math.min(CONFIG.maxZoom, z));
+    }
+
+    function clampPan() {
+        if (state.zoom <= 1) {
+            state.panX = 0;
+            state.panY = 0;
+            return;
+        }
+        const bookRect = DOM.book.getBoundingClientRect();
+        const winW = window.innerWidth;
+        const winH = window.innerHeight;
+        const scaledW = bookRect.width;
+        const scaledH = bookRect.height;
+        const maxX = Math.max(0, (scaledW - winW) / 2 + 50);
+        const maxY = Math.max(0, (scaledH - winH) / 2 + 50);
+        state.panX = Math.max(-maxX, Math.min(maxX, state.panX));
+        state.panY = Math.max(-maxY, Math.min(maxY, state.panY));
+    }
+
+    function resetZoom(animated = true) {
+        state.zoom = 1;
+        state.panX = 0;
+        state.panY = 0;
+        applyTransform(animated);
+        showZoomIndicator();
+    }
+
+    function zoomAt(newZoom, centerX, centerY, animated = false) {
+        newZoom = clampZoom(newZoom);
+        const bookRect = DOM.book.getBoundingClientRect();
+        const bookCenterX = bookRect.left + bookRect.width / 2;
+        const bookCenterY = bookRect.top + bookRect.height / 2;
+        const offsetX = (centerX - bookCenterX) / state.zoom;
+        const offsetY = (centerY - bookCenterY) / state.zoom;
+        state.panX = state.panX + offsetX * (state.zoom - newZoom);
+        state.panY = state.panY + offsetY * (state.zoom - newZoom);
+        state.zoom = newZoom;
+        clampPan();
+        applyTransform(animated);
+        showZoomIndicator();
+    }
+
+    // ============================================
+    //  TOUCH
+    // ============================================
+    function getDistance(t1, t2) {
+        const dx = t2.clientX - t1.clientX;
+        const dy = t2.clientY - t1.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getCenter(t1, t2) {
+        return {
+            x: (t1.clientX + t2.clientX) / 2,
+            y: (t1.clientY + t2.clientY) / 2,
+        };
+    }
+
+    function initTouch() {
+        const el = DOM.bookContainer;
+
+        el.addEventListener('touchstart', (e) => {
+            if (state.isAnimating) return;
+            const touches = e.touches;
+
+            if (touches.length === 2) {
+                e.preventDefault();
+                state.isPinching = true;
+                state.isPanning = false;
+                state.pinchStartDist = getDistance(touches[0], touches[1]);
+                state.pinchStartZoom = state.zoom;
+                const c = getCenter(touches[0], touches[1]);
+                state.pinchCenterX = c.x;
+                state.pinchCenterY = c.y;
+            } else if (touches.length === 1) {
+                const t = touches[0];
+                state.touchStartX = t.clientX;
+                state.touchStartY = t.clientY;
+                state.touchStartTime = Date.now();
+
+                if (isZoomed()) {
+                    state.isPanning = true;
+                    state.panStartX = t.clientX;
+                    state.panStartY = t.clientY;
+                    state.panStartPanX = state.panX;
+                    state.panStartPanY = state.panY;
+                    DOM.book.classList.add('dragging');
+                }
+            }
+        }, { passive: false });
+
+        el.addEventListener('touchmove', (e) => {
+            const touches = e.touches;
+
+            if (state.isPinching && touches.length === 2) {
+                e.preventDefault();
+                const dist = getDistance(touches[0], touches[1]);
+                const scale = dist / state.pinchStartDist;
+                const newZoom = clampZoom(state.pinchStartZoom * scale);
+                const c = getCenter(touches[0], touches[1]);
+                const bookRect = DOM.book.getBoundingClientRect();
+                const bookCenterX = bookRect.left + bookRect.width / 2;
+                const bookCenterY = bookRect.top + bookRect.height / 2;
+                const offsetX = (state.pinchCenterX - bookCenterX) / state.zoom;
+                const offsetY = (state.pinchCenterY - bookCenterY) / state.zoom;
+                state.panX = state.panX + offsetX * (state.zoom - newZoom) + (c.x - state.pinchCenterX);
+                state.panY = state.panY + offsetY * (state.zoom - newZoom) + (c.y - state.pinchCenterY);
+                state.zoom = newZoom;
+                state.pinchCenterX = c.x;
+                state.pinchCenterY = c.y;
+                clampPan();
+                applyTransform(false);
+                showZoomIndicator();
+            } else if (state.isPanning && touches.length === 1 && isZoomed()) {
+                e.preventDefault();
+                const t = touches[0];
+                state.panX = state.panStartPanX + (t.clientX - state.panStartX);
+                state.panY = state.panStartPanY + (t.clientY - state.panStartY);
+                clampPan();
+                applyTransform(false);
+            }
+        }, { passive: false });
+
+        el.addEventListener('touchend', (e) => {
+            const remaining = e.touches.length;
+
+            if (state.isPinching) {
+                if (remaining < 2) {
+                    state.isPinching = false;
+                    if (state.zoom < 1.05) resetZoom(true);
+                    else { clampPan(); applyTransform(true); }
+                }
+                return;
+            }
+
+            if (state.isPanning) {
+                if (remaining === 0) {
+                    state.isPanning = false;
+                    DOM.book.classList.remove('dragging');
+                }
+                return;
+            }
+
+            if (state.isAnimating || remaining > 0) return;
+
+            const t = e.changedTouches[0];
+            const dx = t.clientX - state.touchStartX;
+            const dy = t.clientY - state.touchStartY;
+            const dt = Date.now() - state.touchStartTime;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+
+            if (isZoomed()) return;
+
+            if (absDx < 10 && absDy < 10 && dt < 300) {
+                const now = Date.now();
+                const tapDelta = now - state.lastTapTime;
+
+                if (tapDelta < CONFIG.doubleTapDelay && tapDelta > 50) {
+                    state.lastTapTime = 0;
+                    if (isZoomed()) resetZoom(true);
+                    else zoomAt(CONFIG.doubleTapZoom, t.clientX, t.clientY, true);
+                } else {
+                    state.lastTapTime = now;
+                    setTimeout(() => {
+                        if (state.lastTapTime === now) {
+                            if (state.uiVisible) hideUI();
+                            else resetUITimer();
+                            showTouchFeedback(t.clientX, t.clientY);
+                        }
+                    }, CONFIG.doubleTapDelay);
+                }
+                return;
+            }
+
+            if (absDx > CONFIG.swipeThreshold && absDx > absDy) {
+                if (dx < 0) goNext(); else goPrev();
+            }
+        }, { passive: false });
+
+        el.addEventListener('touchcancel', () => {
+            state.isPinching = false;
+            state.isPanning = false;
+            DOM.book.classList.remove('dragging');
+        });
+
+        el.addEventListener('click', (e) => {
+            if (state.isAnimating || isZoomed()) return;
+            if (e.detail === 0) return;
+
+            const rect = el.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const third = rect.width / 3;
+
+            if (x < third) goPrev();
+            else if (x > third * 2) goNext();
+            else {
+                if (state.uiVisible) hideUI(); else resetUITimer();
+            }
+        });
+
+        el.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            if (isZoomed()) resetZoom(true);
+            else zoomAt(CONFIG.doubleTapZoom, e.clientX, e.clientY, true);
+        });
+    }
+
+    // ============================================
+    //  АНИМАЦИИ ПЕРЕЛИСТЫВАНИЯ
     // ============================================
     function flipToSpread(targetSpread, direction) {
-        if (state.isAnimating) return;
+        if (state.isAnimating || isZoomed()) return;
         if (targetSpread < 0 || targetSpread > getMaxSpread()) return;
         if (targetSpread === state.currentSpread) return;
 
         state.isAnimating = true;
-
-        if (state.isVertical) {
-            animateSlide(targetSpread, direction);
-        } else {
-            animateFlip(targetSpread, direction);
-        }
+        if (state.isVertical) animateSlide(targetSpread, direction);
+        else animateFlip(targetSpread, direction);
     }
 
     function animateFlip(targetSpread, direction) {
@@ -324,7 +578,6 @@
         front.className = 'flip-front';
         const back = document.createElement('div');
         back.className = 'flip-back';
-
         const shadow = document.createElement('div');
         shadow.className = 'flip-shadow';
 
@@ -337,22 +590,16 @@
             const curRight = state.currentSpread * 2 + 1;
             if (curRight < state.totalPages) {
                 const imgF = document.createElement('img');
-                imgF.src = CONFIG.pages[curRight];
-                imgF.draggable = false;
+                imgF.src = CONFIG.pages[curRight]; imgF.draggable = false;
                 front.appendChild(imgF);
-            } else {
-                front.style.background = '#f5f0e8';
-            }
+            } else front.style.background = '#f5f0e8';
 
             const newLeft = targetSpread * 2;
             if (newLeft < state.totalPages) {
                 const imgB = document.createElement('img');
-                imgB.src = CONFIG.pages[newLeft];
-                imgB.draggable = false;
+                imgB.src = CONFIG.pages[newLeft]; imgB.draggable = false;
                 back.appendChild(imgB);
-            } else {
-                back.style.background = '#f5f0e8';
-            }
+            } else back.style.background = '#f5f0e8';
 
             shadow.classList.add('flip-shadow-right');
             shadow.style.left = '0';
@@ -365,20 +612,16 @@
             const curLeft = state.currentSpread * 2;
             if (curLeft < state.totalPages) {
                 const imgF = document.createElement('img');
-                imgF.src = CONFIG.pages[curLeft];
-                imgF.draggable = false;
+                imgF.src = CONFIG.pages[curLeft]; imgF.draggable = false;
                 front.appendChild(imgF);
             }
 
             const newRight = targetSpread * 2 + 1;
             if (newRight < state.totalPages) {
                 const imgB = document.createElement('img');
-                imgB.src = CONFIG.pages[newRight];
-                imgB.draggable = false;
+                imgB.src = CONFIG.pages[newRight]; imgB.draggable = false;
                 back.appendChild(imgB);
-            } else {
-                back.style.background = '#f5f0e8';
-            }
+            } else back.style.background = '#f5f0e8';
 
             shadow.classList.add('flip-shadow-left');
             shadow.style.left = halfW + 'px';
@@ -392,9 +635,7 @@
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 shadow.classList.add('active');
-                flipPage.style.transform = direction === 'next'
-                    ? 'rotateY(-180deg)'
-                    : 'rotateY(180deg)';
+                flipPage.style.transform = direction === 'next' ? 'rotateY(-180deg)' : 'rotateY(180deg)';
             });
         });
 
@@ -421,21 +662,16 @@
 
         const newSlide = document.createElement('div');
         newSlide.className = 'slide-container';
-
         const pageDiv = document.createElement('div');
         pageDiv.className = 'page-inner';
-
         const img = document.createElement('img');
-        img.src = newSrc;
-        img.draggable = false;
-
+        img.src = newSrc; img.draggable = false;
         pageDiv.appendChild(img);
         newSlide.appendChild(pageDiv);
 
         const offset = direction === 'next' ? '100%' : '-100%';
         newSlide.style.transform = `translateX(${offset})`;
         newSlide.style.opacity = '0.5';
-
         DOM.book.appendChild(newSlide);
 
         requestAnimationFrame(() => {
@@ -462,19 +698,18 @@
     //  НАВИГАЦИЯ
     // ============================================
     function goNext() {
-        if (state.currentSpread < getMaxSpread()) {
-            flipToSpread(state.currentSpread + 1, 'next');
-        }
+        if (isZoomed()) return;
+        if (state.currentSpread < getMaxSpread()) flipToSpread(state.currentSpread + 1, 'next');
     }
 
     function goPrev() {
-        if (state.currentSpread > 0) {
-            flipToSpread(state.currentSpread - 1, 'prev');
-        }
+        if (isZoomed()) return;
+        if (state.currentSpread > 0) flipToSpread(state.currentSpread - 1, 'prev');
     }
 
     function goToSpread(idx) {
         if (idx === state.currentSpread) return;
+        resetZoom(false);
         const dir = idx > state.currentSpread ? 'next' : 'prev';
         if (Math.abs(idx - state.currentSpread) > 1) {
             state.currentSpread = idx;
@@ -488,6 +723,7 @@
         let spread = state.isVertical ? pageIdx : Math.floor(pageIdx / 2);
         spread = Math.max(0, Math.min(spread, getMaxSpread()));
         if (spread === state.currentSpread) return;
+        resetZoom(false);
         state.currentSpread = spread;
         renderBook();
     }
@@ -495,7 +731,6 @@
     function updateNavigation() {
         const current = state.currentSpread;
         const max = getMaxSpread();
-
         DOM.btnPrev.classList.toggle('disabled', current <= 0);
         DOM.btnNext.classList.toggle('disabled', current >= max);
 
@@ -511,30 +746,25 @@
 
         DOM.pageSlider.max = max;
         DOM.pageSlider.value = current;
-
         resetUITimer();
     }
 
     // ============================================
-    //  МИНИАТЮРЫ (виртуализация для 163 стр.)
+    //  МИНИАТЮРЫ
     // ============================================
     function renderThumbnails() {
         DOM.thumbnailsGrid.innerHTML = '';
-
         CONFIG.pages.forEach((src, idx) => {
             const item = document.createElement('div');
             item.className = 'thumb-item';
-
-            let isActive = state.isVertical
+            const isActive = state.isVertical
                 ? idx === state.currentSpread
                 : Math.floor(idx / 2) === state.currentSpread;
             if (isActive) item.classList.add('active');
 
             const img = document.createElement('img');
-            img.src = src;
-            img.alt = `Страница ${idx + 1}`;
-            img.loading = 'lazy';   // ВАЖНО: ленивая загрузка браузером
-            img.decoding = 'async';
+            img.src = src; img.alt = `Страница ${idx + 1}`;
+            img.loading = 'lazy'; img.decoding = 'async';
 
             const label = document.createElement('div');
             label.className = 'thumb-label';
@@ -542,16 +772,10 @@
 
             item.appendChild(img);
             item.appendChild(label);
-
-            item.addEventListener('click', () => {
-                closeThumbnails();
-                goToPage(idx);
-            });
-
+            item.addEventListener('click', () => { closeThumbnails(); goToPage(idx); });
             DOM.thumbnailsGrid.appendChild(item);
         });
 
-        // Прокрутить к активной
         setTimeout(() => {
             const active = DOM.thumbnailsGrid.querySelector('.thumb-item.active');
             if (active) active.scrollIntoView({ behavior: 'instant', block: 'center' });
@@ -568,7 +792,7 @@
     }
 
     // ============================================
-    //  ПОЛНЫЙ ЭКРАН
+    //  ПРОЧЕЕ
     // ============================================
     function toggleFullscreen() {
         if (!document.fullscreenElement && !document.webkitFullscreenElement) {
@@ -581,9 +805,6 @@
         }
     }
 
-    // ============================================
-    //  UI АВТОСКРЫТИЕ
-    // ============================================
     function showUI() {
         state.uiVisible = true;
         DOM.header.classList.remove('auto-hidden');
@@ -602,56 +823,6 @@
         state.uiTimeout = setTimeout(hideUI, CONFIG.autoHideUI);
     }
 
-    // ============================================
-    //  TOUCH
-    // ============================================
-    function initTouch() {
-        const el = DOM.bookContainer;
-        let isDragging = false;
-
-        el.addEventListener('touchstart', (e) => {
-            if (state.isAnimating) return;
-            const t = e.touches[0];
-            state.touchStartX = t.clientX;
-            state.touchStartY = t.clientY;
-            state.touchStartTime = Date.now();
-            isDragging = true;
-        }, { passive: true });
-
-        el.addEventListener('touchend', (e) => {
-            if (!isDragging || state.isAnimating) return;
-            isDragging = false;
-
-            const t = e.changedTouches[0];
-            const dx = t.clientX - state.touchStartX;
-            const dy = t.clientY - state.touchStartY;
-            const dt = Date.now() - state.touchStartTime;
-
-            if (Math.abs(dx) > CONFIG.swipeThreshold && Math.abs(dx) > Math.abs(dy)) {
-                if (dx < 0) goNext(); else goPrev();
-            } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && dt < 300) {
-                if (state.uiVisible) hideUI(); else resetUITimer();
-                showTouchFeedback(t.clientX, t.clientY);
-            }
-        }, { passive: true });
-
-        el.addEventListener('click', (e) => {
-            if (state.isAnimating) return;
-            // Если это был touch, click не вызываем повторно (handled)
-            if (e.detail === 0) return;
-
-            const rect = el.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const third = rect.width / 3;
-
-            if (x < third) goPrev();
-            else if (x > third * 2) goNext();
-            else {
-                if (state.uiVisible) hideUI(); else resetUITimer();
-            }
-        });
-    }
-
     function showTouchFeedback(x, y) {
         const hint = document.createElement('div');
         hint.className = 'touch-hint';
@@ -661,46 +832,38 @@
         setTimeout(() => hint.remove(), 600);
     }
 
-    // ============================================
-    //  КЛАВИАТУРА
-    // ============================================
     function initKeyboard() {
         document.addEventListener('keydown', (e) => {
             switch (e.key) {
-                case 'ArrowRight':
-                case 'ArrowDown':
-                case ' ':
-                case 'PageDown':
+                case 'ArrowRight': case 'ArrowDown': case ' ': case 'PageDown':
                     e.preventDefault(); goNext(); break;
-                case 'ArrowLeft':
-                case 'ArrowUp':
-                case 'PageUp':
+                case 'ArrowLeft': case 'ArrowUp': case 'PageUp':
                     e.preventDefault(); goPrev(); break;
-                case 'Home':
-                    e.preventDefault(); goToSpread(0); break;
-                case 'End':
-                    e.preventDefault(); goToSpread(getMaxSpread()); break;
-                case 'f':
-                case 'F':
-                    toggleFullscreen(); break;
+                case 'Home': e.preventDefault(); goToSpread(0); break;
+                case 'End': e.preventDefault(); goToSpread(getMaxSpread()); break;
+                case 'f': case 'F': toggleFullscreen(); break;
+                case '+': case '=':
+                    e.preventDefault();
+                    zoomAt(state.zoom * 1.3, window.innerWidth / 2, window.innerHeight / 2, true);
+                    break;
+                case '-': case '_':
+                    e.preventDefault();
+                    zoomAt(state.zoom / 1.3, window.innerWidth / 2, window.innerHeight / 2, true);
+                    break;
+                case '0':
+                    e.preventDefault(); resetZoom(true); break;
                 case 'Escape':
                     if (!DOM.thumbnailsPanel.classList.contains('hidden')) closeThumbnails();
+                    else if (isZoomed()) resetZoom(true);
                     break;
             }
         });
     }
 
-    // ============================================
-    //  СОБЫТИЯ
-    // ============================================
     function initEvents() {
         DOM.btnPrev.addEventListener('click', (e) => { e.stopPropagation(); goPrev(); });
         DOM.btnNext.addEventListener('click', (e) => { e.stopPropagation(); goNext(); });
-
-        DOM.pageSlider.addEventListener('input', (e) => {
-            goToSpread(parseInt(e.target.value));
-        });
-
+        DOM.pageSlider.addEventListener('input', (e) => goToSpread(parseInt(e.target.value)));
         DOM.btnFullscreen.addEventListener('click', (e) => { e.stopPropagation(); toggleFullscreen(); });
         DOM.btnThumbnails.addEventListener('click', (e) => { e.stopPropagation(); openThumbnails(); });
         DOM.btnCloseThumbnails.addEventListener('click', closeThumbnails);
@@ -711,6 +874,7 @@
             resizeTimeout = setTimeout(() => {
                 const changed = detectOrientation();
                 if (changed) convertPosition();
+                resetZoom(false);
                 calculateBookSize();
                 renderBook();
             }, 150);
@@ -720,10 +884,26 @@
 
         DOM.bookContainer.addEventListener('wheel', (e) => {
             e.preventDefault();
+            if (e.ctrlKey || e.metaKey) {
+                const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+                zoomAt(state.zoom * factor, e.clientX, e.clientY, false);
+                return;
+            }
+            if (isZoomed()) {
+                state.panX -= e.deltaX;
+                state.panY -= e.deltaY;
+                clampPan();
+                applyTransform(false);
+                return;
+            }
             if (state.isAnimating) return;
             if (e.deltaY > 0 || e.deltaX > 0) goNext();
             else goPrev();
         }, { passive: false });
+
+        DOM.bookContainer.addEventListener('contextmenu', (e) => {
+            if ('ontouchstart' in window) e.preventDefault();
+        });
     }
 
     function convertPosition() {
@@ -742,13 +922,13 @@
     // ============================================
     async function init() {
         DOM.loadingText.textContent = `Подготовка ${TOTAL_PAGES} страниц...`;
-
         await preloadInitial();
 
         DOM.loader.classList.add('fade-out');
         setTimeout(() => { DOM.loader.style.display = 'none'; }, 600);
         DOM.app.classList.remove('hidden');
 
+        createZoomUI();
         detectOrientation();
         calculateBookSize();
         renderBook();
@@ -758,7 +938,6 @@
         initEvents();
         resetUITimer();
 
-        // В фоне подгружаем остальные страницы
         setTimeout(backgroundPreload, 1000);
     }
 
@@ -769,3 +948,4 @@
     }
 
 })();
+```
