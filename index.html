@@ -9,7 +9,6 @@
 </head>
 <body>
 
-    <!-- Экран загрузки -->
     <div id="loader">
         <div class="loader-content">
             <div class="book-icon">📖</div>
@@ -21,15 +20,13 @@
         </div>
     </div>
 
-    <!-- Основной интерфейс -->
     <div id="app" class="hidden">
-        <!-- Верхняя панель -->
         <header id="header">
             <div class="header-left">
                 <span class="book-title">📖 Фотокнига</span>
             </div>
             <div class="header-center">
-                <span id="pageIndicator">1 / 10</span>
+                <span id="pageIndicator">1 / 163</span>
             </div>
             <div class="header-right">
                 <button id="btnThumbnails" class="header-btn" title="Миниатюры">
@@ -46,14 +43,10 @@
             </div>
         </header>
 
-        <!-- Контейнер книги -->
         <div id="bookContainer">
-            <div id="book">
-                <!-- Страницы генерируются через JS -->
-            </div>
+            <div id="book"></div>
         </div>
 
-        <!-- Навигация -->
         <button id="btnPrev" class="nav-btn nav-prev" title="Назад">
             <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <polyline points="15 18 9 12 15 6"/>
@@ -65,14 +58,12 @@
             </svg>
         </button>
 
-        <!-- Нижняя панель с прогрессом -->
         <footer id="footer">
             <div class="page-slider-container">
-                <input type="range" id="pageSlider" min="0" max="9" value="0" class="page-slider">
+                <input type="range" id="pageSlider" min="0" max="81" value="0" class="page-slider">
             </div>
         </footer>
 
-        <!-- Панель миниатюр -->
         <div id="thumbnailsPanel" class="thumbnails-panel hidden">
             <div class="thumbnails-header">
                 <h2>Страницы</h2>
