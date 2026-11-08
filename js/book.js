@@ -1,13 +1,15 @@
 (function () {
   "use strict";
 
-  const TOTAL = 163;                               // всего страниц
-  const ASPECT = 3 / 4;                            // пропорция страницы: ширина / высота
-  const pageSrc = n => `images/page (${n}).jpg`;   // имя должно точно совпадать с файлом
+  const TOTAL = 163;
+  const SECTION = 20;
+  const MAX_ZOOM = 4;
+  const DOUBLE_TAP_ZOOM = 2.5;
+  const KEY = "photobook-last-page";
+  const pageSrc = n => `images/page (${n}).jpg`;
 
   const $ = id => document.getElementById(id);
   const el = {
-    book: $("book"),
     app: $("app"),
     loader: $("loader"),
     progress: $("progressFill"),
@@ -17,152 +19,235 @@
     next: $("btnNext"),
     thumbBtn: $("btnThumbnails"),
     fullBtn: $("btnFullscreen"),
+    container: $("bookContainer"),
+    book: $("book"),
     thumbPanel: $("thumbnailsPanel"),
     thumbGrid: $("thumbnailsGrid"),
-    thumbClose: $("btnCloseThumbnails"),
-    container: $("bookContainer")
+    thumbClose: $("btnCloseThumbnails")
   };
 
-  let cur = 1;                                     // номер первой страницы в кадре
+  let cur = 1;
+  let zoom = 1, panX = 0, panY = 0;
+  let uiVisible = true;
+  let tapTimer = null, lastTapTime = 0;
 
-  const isPortrait = () => window.innerHeight > window.innerWidth;
-  const step = () => (isPortrait() ? 1 : 2);
+  // одна картинка, которую меняем при листании
+  const img = document.createElement("img");
+  const msg = document.createElement("div");
+  msg.className = "page-msg hidden";
+  el.book.append(img, msg);
 
-  // ---------- размеры ----------
-  function sizeBook() {
-    const portrait = isPortrait();
-    const availW = window.innerWidth - (portrait ? 16 : 40);
-    const availH = window.innerHeight - (portrait ? 140 : 120);
-    let w, h;
-    if (portrait) {
-      w = availW;
-      h = w / ASPECT;
-      if (h > availH) { h = availH; w = h * ASPECT; }
-    } else {
-      h = availH;
-      w = h * ASPECT * 2;
-      if (w > availW) { w = availW; h = w / (2 * ASPECT); }
-    }
-    el.book.style.width = Math.floor(w) + "px";
-    el.book.style.height = Math.floor(h) + "px";
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // ---------- сохранение позиции ----------
+  function savePos() {
+    try { localStorage.setItem(KEY, String(cur)); } catch (e) {}
+  }
+  function loadPos() {
+    try {
+      const v = parseInt(localStorage.getItem(KEY), 10);
+      return v >= 1 && v <= TOTAL ? v : 1;
+    } catch (e) { return 1; }
   }
 
-  // ---------- страницы ----------
-  function pageNode(n, side) {
-    const page = document.createElement("div");
-    page.className = "page page-" + side;
-    if (n <= TOTAL) {
-      const img = document.createElement("img");
-      img.alt = "Страница " + n;
-      img.src = pageSrc(n);
-      img.onerror = () => {
-        img.remove();
-        page.classList.add("broken");
-        page.textContent = "Не загрузилась страница " + n;
-      };
-      page.appendChild(img);
-    } else {
-      page.classList.add("empty");
-    }
-    return page;
+  // ---------- зум и перемещение ----------
+  function applyZoom(animated) {
+    img.style.transition = animated
+      ? "transform 0.25s ease-out, opacity 0.25s ease"
+      : "none";
+    img.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
   }
 
-  function render() {
-    const portrait = isPortrait();
-    const old = el.book.querySelector(".spread");
+  function clampPan() {
+    const w = el.book.clientWidth, h = el.book.clientHeight;
+    const maxX = (zoom - 1) * w / 2;
+    const maxY = (zoom - 1) * h / 2;
+    panX = clamp(panX, -maxX, maxX);
+    panY = clamp(panY, -maxY, maxY);
+  }
 
-    const spread = document.createElement("div");
-    spread.className = "spread" + (portrait ? " single" : "");
-    spread.appendChild(pageNode(cur, "left"));
-    if (!portrait) spread.appendChild(pageNode(cur + 1, "right"));
+  function resetZoom(animated = true) {
+    zoom = 1; panX = 0; panY = 0;
+    applyZoom(animated);
+  }
 
-    spread.style.opacity = "0";
-    el.book.appendChild(spread);
-    requestAnimationFrame(() => { spread.style.opacity = "1"; });
+  function zoomAt(cx, cy) {
+    const r = el.container.getBoundingClientRect();
+    const ox = cx - (r.left + r.width / 2);
+    const oy = cy - (r.top + r.height / 2);
+    zoom = DOUBLE_TAP_ZOOM;
+    panX = ox * (1 - zoom);
+    panY = oy * (1 - zoom);
+    clampPan();
+    applyZoom(true);
+  }
 
-    if (old) {
-      old.style.opacity = "0";
-      setTimeout(() => old.remove(), 300);
-    }
+  // ---------- показ страниц ----------
+  function show(n) {
+    cur = n;
+    msg.classList.add("hidden");
+    img.style.opacity = "0";
+    img.alt = `Страница ${n}`;
+    img.onload = () => { img.style.opacity = "1"; };
+    img.onerror = () => {
+      img.style.opacity = "0";
+      msg.textContent = `Страница ${n} не загрузилась`;
+      msg.classList.remove("hidden");
+    };
+    img.src = pageSrc(n);
+  }
+
+  function preload(n) {
+    [n + 1, n + 2, n + 3, n - 1].forEach(p => {
+      if (p >= 1 && p <= TOTAL) new Image().src = pageSrc(p);
+    });
   }
 
   function updateUI() {
-    const portrait = isPortrait();
-    el.indicator.textContent = (portrait || cur === TOTAL)
-      ? `Стр. ${cur} / ${TOTAL}`
-      : `Стр. ${cur}–${cur + 1} / ${TOTAL}`;
+    el.indicator.textContent = `Стр. ${cur} / ${TOTAL}`;
     el.slider.value = cur;
     el.prev.disabled = cur <= 1;
     el.next.disabled = cur >= TOTAL;
   }
 
-  function preload(from, count) {
-    for (let n = from; n < from + count && n <= TOTAL; n++) {
-      const im = new Image();
-      im.src = pageSrc(n);
-    }
-  }
-
-  // ---------- навигация ----------
-  function go(p) {
-    p = Math.max(1, Math.min(TOTAL, p));
-    if (!isPortrait() && p % 2 === 0) p -= 1;     // в развороте левая страница нечётная
-    if (p === cur) return;
-    cur = p;
-    render();
+  function go(n) {
+    n = clamp(Math.round(n), 1, TOTAL);
+    if (n === cur) return;
+    resetZoom(false);
+    show(n);
     updateUI();
-    preload(cur + 1, 4);                           // подгружаем следующие в фоне
+    savePos();
+    preload(n);
   }
 
-  const next = () => go(cur + step());
-  const prev = () => go(cur - step());
+  const next = () => go(cur + 1);
+  const prev = () => go(cur - 1);
 
-  function redraw() {
-    if (!isPortrait() && cur % 2 === 0) cur -= 1;
-    el.book.innerHTML = "";
-    sizeBook();
-    render();
-    updateUI();
+  // ---------- панели ----------
+  function setUI(visible) {
+    uiVisible = visible;
+    document.body.classList.toggle("ui-hidden", !visible);
   }
 
-  // ---------- миниатюры ----------
-  function buildThumbs() {
-    for (let n = 1; n <= TOTAL; n++) {
-      const item = document.createElement("div");
-      item.className = "thumb-item";
+  // ---------- жесты (мышь и пальцы) ----------
+  const pointers = new Map();
+  let start = null;   // {x, y, t, panX, panY}
+  let moved = false;
+  let pinch = null;   // {dist, zoom}
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
-      const img = document.createElement("img");
-      img.loading = "lazy";
-      img.alt = "Страница " + n;
-      img.src = pageSrc(n);
+  function handleTap(x, y) {
+    const now = Date.now();
+    const double = now - lastTapTime < 300;
+    lastTapTime = now;
+    clearTimeout(tapTimer);
 
-      const label = document.createElement("div");
-      label.className = "thumb-label";
-      label.textContent = n;
-
-      item.append(img, label);
-      item.onclick = () => {
-        go(n);
-        el.thumbPanel.classList.add("hidden");
-      };
-      el.thumbGrid.appendChild(item);
+    if (zoom > 1) {
+      if (double) resetZoom();
+      else tapTimer = setTimeout(() => setUI(!uiVisible), 260);
+      return;
     }
+
+    const rel = x / el.container.clientWidth;
+    if (rel < 0.25) { prev(); return; }
+    if (rel > 0.75) { next(); return; }
+
+    if (double) {
+      lastTapTime = 0;
+      zoomAt(x, y);
+      return;
+    }
+    tapTimer = setTimeout(() => setUI(!uiVisible), 260);
   }
 
-  function openThumbs() {
-    if (!el.thumbGrid.children.length) buildThumbs();
-    [...el.thumbGrid.children].forEach((item, i) =>
-      item.classList.toggle("active", i + 1 === cur));
-    el.thumbPanel.classList.remove("hidden");
+  function bindGestures() {
+    const c = el.container;
+
+    c.addEventListener("pointerdown", e => {
+      try { c.setPointerCapture(e.pointerId); } catch (err) {}
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.size === 1) {
+        start = { x: e.clientX, y: e.clientY, t: Date.now(), panX, panY };
+        moved = false;
+      } else if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinch = { dist: dist(a, b), zoom };
+        moved = true;
+      }
+    });
+
+    c.addEventListener("pointermove", e => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.size === 2 && pinch) {
+        const [a, b] = [...pointers.values()];
+        zoom = clamp(pinch.zoom * dist(a, b) / pinch.dist, 1, MAX_ZOOM);
+        clampPan();
+        applyZoom(false);
+      } else if (pointers.size === 1 && start) {
+        const dx = e.clientX - start.x;
+        const dy = e.clientY - start.y;
+        if (Math.hypot(dx, dy) > 8) moved = true;
+        if (zoom > 1) {
+          panX = start.panX + dx;
+          panY = start.panY + dy;
+          clampPan();
+          applyZoom(false);
+        }
+      }
+    });
+
+    const up = e => {
+      if (!pointers.has(e.pointerId)) return;
+      const wasSingle = pointers.size === 1;
+      pointers.delete(e.pointerId);
+
+      if (pinch) {
+        if (pointers.size === 1) {
+          const [p] = [...pointers.values()];
+          start = { x: p.x, y: p.y, t: Date.now(), panX, panY };
+          moved = true;
+        }
+        if (pointers.size === 0) {
+          pinch = null;
+          if (zoom < 1.05) resetZoom();
+        }
+        return;
+      }
+
+      if (!wasSingle || !start) return;
+
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+
+      if (moved) {
+        // свайп по горизонтали, только когда фото не увеличено
+        if (zoom === 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+          if (dx < 0) next(); else prev();
+        }
+        return;
+      }
+
+      if (Date.now() - start.t > 400) return;
+      handleTap(e.clientX, e.clientY);
+    };
+
+    c.addEventListener("pointerup", up);
+    c.addEventListener("pointercancel", e => {
+      pointers.delete(e.pointerId);
+      if (pointers.size === 0) pinch = null;
+    });
   }
 
-  // ---------- события ----------
-  function bindEvents() {
+  // ---------- кнопки и клавиатура ----------
+  function bindButtons() {
     el.prev.onclick = prev;
     el.next.onclick = next;
     el.slider.oninput = () => go(Number(el.slider.value));
     el.thumbBtn.onclick = openThumbs;
-    el.thumbClose.onclick = () => el.thumbPanel.classList.add("hidden");
+    el.thumbClose.onclick = closeThumbs;
 
     if (document.documentElement.requestFullscreen) {
       el.fullBtn.onclick = () => {
@@ -170,56 +255,132 @@
         else document.documentElement.requestFullscreen().catch(() => {});
       };
     } else {
-      el.fullBtn.style.display = "none";           // iPhone Safari не поддерживает
+      el.fullBtn.style.display = "none"; // iPhone Safari не поддерживает
     }
 
     document.addEventListener("keydown", e => {
       if (e.key === "ArrowRight") next();
       else if (e.key === "ArrowLeft") prev();
-      else if (e.key === "Escape") el.thumbPanel.classList.add("hidden");
+      else if (e.key === "Escape") closeThumbs();
     });
 
-    let sx = 0, sy = 0;
-    el.container.addEventListener("touchstart", e => {
-      sx = e.touches[0].clientX;
-      sy = e.touches[0].clientY;
-    }, { passive: true });
-    el.container.addEventListener("touchend", e => {
-      const dx = e.changedTouches[0].clientX - sx;
-      const dy = e.changedTouches[0].clientY - sy;
-      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
-        if (dx < 0) next();
-        else prev();
-      }
-    }, { passive: true });
+    window.addEventListener("resize", () => {
+      clampPan();
+      applyZoom(false);
+    });
+  }
 
-    window.addEventListener("resize", redraw);
+  // ---------- миниатюры по группам ----------
+  function buildThumbTools() {
+    const head = el.thumbPanel.querySelector(".thumbnails-header");
+    const tools = document.createElement("div");
+    tools.className = "thumb-tools";
+    tools.innerHTML = `
+      <div class="jump">
+        <input type="number" inputmode="numeric" min="1" max="${TOTAL}"
+               placeholder="№ страницы" id="jumpInput">
+        <button type="button" id="jumpBtn">Открыть</button>
+      </div>
+      <div class="sections" id="sections"></div>`;
+    head.after(tools);
+
+    const sections = tools.querySelector("#sections");
+    const count = Math.ceil(TOTAL / SECTION);
+    for (let s = 0; s < count; s++) {
+      const from = s * SECTION + 1;
+      const to = Math.min(TOTAL, (s + 1) * SECTION);
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.dataset.s = s;
+      b.textContent = `${from}–${to}`;
+      b.onclick = () => showSection(s);
+      sections.appendChild(b);
+    }
+
+    const input = tools.querySelector("#jumpInput");
+    const jump = () => {
+      const n = parseInt(input.value, 10);
+      if (n >= 1 && n <= TOTAL) {
+        go(n);
+        closeThumbs();
+      }
+    };
+    tools.querySelector("#jumpBtn").onclick = jump;
+    input.addEventListener("keydown", e => { if (e.key === "Enter") jump(); });
+  }
+
+  function showSection(s) {
+    el.thumbPanel.querySelectorAll(".chip").forEach(c =>
+      c.classList.toggle("active", Number(c.dataset.s) === s));
+
+    const from = s * SECTION + 1;
+    const to = Math.min(TOTAL, (s + 1) * SECTION);
+    const frag = document.createDocumentFragment();
+
+    el.thumbGrid.innerHTML = "";
+    for (let n = from; n <= to; n++) {
+      const item = document.createElement("div");
+      item.className = "thumb-item" + (n === cur ? " active" : "");
+
+      const im = document.createElement("img");
+      im.loading = "lazy";
+      im.alt = `Страница ${n}`;
+      im.src = pageSrc(n);
+
+      const label = document.createElement("div");
+      label.className = "thumb-label";
+      label.textContent = n;
+
+      item.append(im, label);
+      item.onclick = () => { go(n); closeThumbs(); };
+      frag.appendChild(item);
+    }
+    el.thumbGrid.appendChild(frag);
+    el.thumbGrid.scrollTop = 0;
+  }
+
+  function openThumbs() {
+    showSection(Math.floor((cur - 1) / SECTION));
+    el.thumbPanel.classList.remove("hidden");
+  }
+
+  function closeThumbs() {
+    el.thumbPanel.classList.add("hidden");
   }
 
   // ---------- запуск ----------
+  function loaded(src, ms) {
+    return new Promise(res => {
+      const p = new Image();
+      p.onload = p.onerror = () => res();
+      p.src = src;
+      setTimeout(res, ms);
+    });
+  }
+
   async function init() {
     el.app.classList.remove("hidden");
     el.slider.min = 1;
     el.slider.max = TOTAL;
-    sizeBook();
 
-    // ждём первые страницы, но не дольше 6 секунд
-    const first = new Promise(done => {
-      const im = new Image();
-      im.onload = im.onerror = done;
-      im.src = pageSrc(1);
-    });
-    await Promise.race([first, new Promise(r => setTimeout(r, 6000))]);
+    buildThumbTools();
+    bindButtons();
+    bindGestures();
 
+    const start = loadPos();
+    cur = start;
+
+    await loaded(pageSrc(start), 6000);
     el.progress.style.width = "100%";
-    render();
+
+    show(start);
     updateUI();
-    preload(2, 6);
+    preload(start);
+    setUI(true);
 
-    el.loader.classList.add("fade-out");
-    setTimeout(() => el.loader.remove(), 700);
-
-    bindEvents();
+    setTimeout(() => el.loader.classList.add("fade-out"), 200);
+    setTimeout(() => el.loader.remove(), 900);
   }
 
   init();
