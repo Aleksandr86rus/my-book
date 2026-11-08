@@ -2,13 +2,16 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>📖 Фотокнига</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
+    <!-- Экран загрузки -->
     <div id="loader">
         <div class="loader-content">
             <div class="book-icon">📖</div>
@@ -20,22 +23,23 @@
         </div>
     </div>
 
+    <!-- Основное приложение -->
     <div id="app" class="hidden">
         <header id="header">
             <div class="header-left">
                 <span class="book-title">📖 Фотокнига</span>
             </div>
             <div class="header-center">
-                <span id="pageIndicator">1 / 163</span>
+                <span id="pageIndicator">Стр. 1 / 163</span>
             </div>
             <div class="header-right">
-                <button id="btnThumbnails" class="header-btn" title="Миниатюры">
+                <button id="btnThumbnails" class="header-btn" title="Миниатюры" aria-label="Миниатюры">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
                         <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
                     </svg>
                 </button>
-                <button id="btnFullscreen" class="header-btn" title="Полный экран">
+                <button id="btnFullscreen" class="header-btn" title="Полный экран" aria-label="Полный экран">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
                     </svg>
@@ -47,12 +51,12 @@
             <div id="book"></div>
         </div>
 
-        <button id="btnPrev" class="nav-btn nav-prev" title="Назад">
+        <button id="btnPrev" class="nav-btn nav-prev" title="Назад" aria-label="Назад">
             <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <polyline points="15 18 9 12 15 6"/>
             </svg>
         </button>
-        <button id="btnNext" class="nav-btn nav-next" title="Вперёд">
+        <button id="btnNext" class="nav-btn nav-next" title="Вперёд" aria-label="Вперёд">
             <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <polyline points="9 18 15 12 9 6"/>
             </svg>
@@ -60,14 +64,15 @@
 
         <footer id="footer">
             <div class="page-slider-container">
-                <input type="range" id="pageSlider" min="0" max="81" value="0" class="page-slider">
+                <input type="range" id="pageSlider" min="1" max="163" value="1" class="page-slider" aria-label="Номер страницы">
             </div>
         </footer>
 
+        <!-- Панель миниатюр (скрыта по умолчанию) -->
         <div id="thumbnailsPanel" class="thumbnails-panel hidden">
             <div class="thumbnails-header">
                 <h2>Страницы</h2>
-                <button id="btnCloseThumbnails" class="close-btn">&times;</button>
+                <button id="btnCloseThumbnails" class="close-btn" aria-label="Закрыть">&times;</button>
             </div>
             <div class="thumbnails-grid" id="thumbnailsGrid"></div>
         </div>
