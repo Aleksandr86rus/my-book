@@ -1,3 +1,17 @@
+:root {
+    --hh: 52px;
+    --fh: 48px;
+    --gold: #e2b04a;
+    --gold-light: #f0d78c;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+    :root {
+        --hh: 42px;
+        --fh: 38px;
+    }
+}
+
 /* ============================================
    БАЗА
    ============================================ */
@@ -7,10 +21,6 @@
     box-sizing: border-box;
 }
 
-html {
-    -webkit-text-size-adjust: 100%;
-}
-
 html, body {
     height: 100%;
     overflow: hidden;
@@ -18,7 +28,7 @@ html, body {
 
 body {
     font-family: 'Roboto', sans-serif;
-    background: #0a0a1a;
+    background: #000;
     color: #fff;
     height: 100vh;
     height: 100dvh;
@@ -33,7 +43,7 @@ body {
 }
 
 /* ============================================
-   ЭКРАН ЗАГРУЗКИ
+   ЗАГРУЗКА
    ============================================ */
 #loader {
     position: fixed;
@@ -73,7 +83,7 @@ body {
     font-family: 'Playfair Display', serif;
     font-size: 2rem;
     margin: 16px 0;
-    background: linear-gradient(90deg, #e2b04a, #f0d78c, #e2b04a);
+    background: linear-gradient(90deg, var(--gold), var(--gold-light), var(--gold));
     background-size: 200% auto;
     -webkit-background-clip: text;
     background-clip: text;
@@ -98,7 +108,7 @@ body {
 .progress-fill {
     height: 100%;
     width: 0;
-    background: linear-gradient(90deg, #e2b04a, #f0d78c);
+    background: linear-gradient(90deg, var(--gold), var(--gold-light));
     border-radius: 2px;
     transition: width 0.3s ease;
 }
@@ -109,24 +119,68 @@ body {
 }
 
 /* ============================================
-   ШАПКА
+   ОБЛАСТЬ ФОТО — на весь экран
+   ============================================ */
+#bookContainer {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    touch-action: none;
+    background: #000;
+}
+
+#book {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+#book img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    pointer-events: none;
+    -webkit-user-drag: none;
+    will-change: transform;
+    transition: transform 0.25s ease-out, opacity 0.25s ease;
+}
+
+#book .page-msg {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    font-size: 15px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+/* ============================================
+   ШАПКА (поверх фото, полупрозрачная)
    ============================================ */
 #header {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
-    height: calc(52px + env(safe-area-inset-top));
+    z-index: 100;
+    height: calc(var(--hh) + env(safe-area-inset-top));
     padding: env(safe-area-inset-top) 10px 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    background: rgba(10, 10, 30, 0.92);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(226, 176, 74, 0.15);
-    z-index: 100;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.35));
+    transition: transform 0.35s ease;
+}
+
+body.ui-hidden #header {
+    transform: translateY(-100%);
 }
 
 .header-left {
@@ -139,7 +193,7 @@ body {
     font-family: 'Playfair Display', serif;
     font-size: 1rem;
     font-weight: 700;
-    color: #e2b04a;
+    color: var(--gold);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -152,7 +206,7 @@ body {
 #pageIndicator {
     font-size: 0.85rem;
     font-weight: 300;
-    color: rgba(255, 255, 255, 0.75);
+    color: rgba(255, 255, 255, 0.85);
     white-space: nowrap;
 }
 
@@ -170,8 +224,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 10px;
     color: #fff;
     cursor: pointer;
@@ -183,135 +237,32 @@ body {
 }
 
 .header-btn:active {
-    background: rgba(226, 176, 74, 0.3);
-    border-color: #e2b04a;
+    background: rgba(226, 176, 74, 0.35);
+    border-color: var(--gold);
 }
 
 /* ============================================
-   ОБЛАСТЬ КНИГИ
-   ============================================ */
-#bookContainer {
-    position: fixed;
-    top: calc(52px + env(safe-area-inset-top));
-    bottom: calc(48px + env(safe-area-inset-bottom));
-    left: 0;
-    right: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    touch-action: pan-y;
-    background:
-        radial-gradient(ellipse at 20% 30%, rgba(226, 176, 74, 0.05) 0%, transparent 60%),
-        radial-gradient(ellipse at 80% 70%, rgba(100, 50, 200, 0.04) 0%, transparent 60%),
-        #0a0a1a;
-}
-
-#book {
-    position: relative;
-    max-width: 100%;
-    max-height: 100%;
-    background: #fff;
-    border-radius: 4px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
-    overflow: hidden;
-}
-
-/* корешок посередине на развороте (альбомная ориентация) */
-#book::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 50%;
-    width: 8px;
-    transform: translateX(-50%);
-    background: linear-gradient(to right, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0));
-    pointer-events: none;
-    z-index: 5;
-}
-
-.spread {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    transition: opacity 0.3s ease;
-}
-
-.page {
-    position: relative;
-    width: 50%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    background: #fff;
-}
-
-.spread.single .page-left {
-    width: 100%;
-}
-
-.page img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    background: #fff;
-    pointer-events: none;
-    -webkit-user-drag: none;
-}
-
-.page.broken {
-    padding: 16px;
-    font-size: 14px;
-    color: #666;
-    text-align: center;
-}
-
-.page-left::after,
-.page-right::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    width: 36px;
-    height: 100%;
-    pointer-events: none;
-    z-index: 2;
-}
-
-.page-left::after {
-    right: 0;
-    background: linear-gradient(to left, rgba(0, 0, 0, 0.15), transparent);
-}
-
-.page-right::before {
-    left: 0;
-    background: linear-gradient(to right, rgba(0, 0, 0, 0.15), transparent);
-}
-
-/* ============================================
-   КНОПКИ ЛИСТАНИЯ
+   КНОПКИ ЛИСТАНИЯ (по бокам, полупрозрачные)
    ============================================ */
 .nav-btn {
     position: fixed;
     top: 50%;
     transform: translateY(-50%);
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.45);
+    background: rgba(0, 0, 0, 0.4);
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     border: none;
     border-radius: 50%;
     color: #fff;
-    opacity: 0.7;
+    opacity: 0.55;
     cursor: pointer;
     z-index: 90;
+    transition: opacity 0.35s ease;
     touch-action: manipulation;
 }
 
@@ -320,15 +271,20 @@ body {
     height: 22px;
 }
 
-.nav-prev { left: 6px; }
-.nav-next { right: 6px; }
+.nav-prev { left: 8px; }
+.nav-next { right: 8px; }
 
 .nav-btn:active {
     background: rgba(226, 176, 74, 0.5);
 }
 
 .nav-btn:disabled {
-    opacity: 0.15;
+    opacity: 0.12;
+    pointer-events: none;
+}
+
+body.ui-hidden .nav-btn {
+    opacity: 0;
     pointer-events: none;
 }
 
@@ -340,15 +296,17 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    height: calc(48px + env(safe-area-inset-bottom));
+    z-index: 100;
+    height: calc(var(--fh) + env(safe-area-inset-bottom));
     padding: 0 16px env(safe-area-inset-bottom);
     display: flex;
     align-items: center;
-    background: rgba(10, 10, 30, 0.92);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-top: 1px solid rgba(226, 176, 74, 0.15);
-    z-index: 100;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.35));
+    transition: transform 0.35s ease;
+}
+
+body.ui-hidden #footer {
+    transform: translateY(100%);
 }
 
 .page-slider-container {
@@ -362,7 +320,7 @@ body {
     appearance: none;
     width: 100%;
     height: 4px;
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
     outline: none;
     cursor: pointer;
@@ -374,7 +332,7 @@ body {
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    background: #e2b04a;
+    background: var(--gold);
     box-shadow: 0 0 10px rgba(226, 176, 74, 0.5);
     cursor: pointer;
 }
@@ -383,7 +341,7 @@ body {
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    background: #e2b04a;
+    background: var(--gold);
     border: none;
     box-shadow: 0 0 10px rgba(226, 176, 74, 0.5);
     cursor: pointer;
@@ -395,27 +353,25 @@ body {
 .thumbnails-panel {
     position: fixed;
     inset: 0;
+    z-index: 500;
     display: flex;
     flex-direction: column;
     padding-top: env(safe-area-inset-top);
-    background: rgba(10, 10, 30, 0.97);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    z-index: 500;
+    background: rgba(10, 10, 20, 0.98);
 }
 
 .thumbnails-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 16px;
+    padding: 8px 14px;
     border-bottom: 1px solid rgba(226, 176, 74, 0.15);
 }
 
 .thumbnails-header h2 {
     font-family: 'Playfair Display', serif;
     font-size: 1.25rem;
-    color: #e2b04a;
+    color: var(--gold);
 }
 
 .close-btn {
@@ -433,6 +389,73 @@ body {
     cursor: pointer;
 }
 
+.thumb-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.jump {
+    display: flex;
+    gap: 8px;
+}
+
+.jump input {
+    flex: 1;
+    min-width: 0;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.07);
+    color: #fff;
+    font-size: 16px; /* 16px — чтобы iPhone не увеличивал экран */
+    outline: none;
+}
+
+.jump button {
+    height: 40px;
+    padding: 0 16px;
+    border: none;
+    border-radius: 10px;
+    background: var(--gold);
+    color: #111;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.sections {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.sections::-webkit-scrollbar {
+    display: none;
+}
+
+.chip {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.chip.active {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: #111;
+    font-weight: 700;
+}
+
 .thumbnails-grid {
     flex: 1;
     display: grid;
@@ -443,18 +466,15 @@ body {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
-    touch-action: pan-y;
 }
 
 .thumb-item {
     position: relative;
-    display: flex;
-    flex-direction: column;
     aspect-ratio: 3 / 4;
     overflow: hidden;
     border: 2px solid transparent;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.05);
+    background: #111;
     cursor: pointer;
 }
 
@@ -463,17 +483,14 @@ body {
 }
 
 .thumb-item.active {
-    border-color: #e2b04a;
-    box-shadow: 0 0 14px rgba(226, 176, 74, 0.35);
+    border-color: var(--gold);
 }
 
 .thumb-item img {
-    width: 100%;
-    flex: 1;
-    min-height: 0;
-    object-fit: cover;
     display: block;
-    background: #fff;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .thumb-label {
@@ -483,28 +500,14 @@ body {
     bottom: 0;
     padding: 3px;
     text-align: center;
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.9);
-    background: rgba(0, 0, 0, 0.5);
+    font-size: 12px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
 }
 
 /* ============================================
-   АДАПТАЦИЯ ПОД ЭКРАН
+   ПЛАНШЕТЫ И ШИРОКИЕ ЭКРАНЫ
    ============================================ */
-
-/* портрет: одна страница на весь экран, без корешка и теней */
-@media (orientation: portrait) {
-    #book::after {
-        display: none;
-    }
-
-    .spread.single .page::after,
-    .spread.single .page::before {
-        display: none;
-    }
-}
-
-/* планшеты и широкие экраны */
 @media (min-width: 768px) {
     .book-title {
         font-size: 1.1rem;
